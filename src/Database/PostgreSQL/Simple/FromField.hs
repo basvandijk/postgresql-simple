@@ -1,6 +1,7 @@
 {-# LANGUAGE CPP, DeriveDataTypeable, DeriveFunctor  #-}
 {-# LANGUAGE FlexibleInstances, TypeSynonymInstances #-}
 {-# LANGUAGE PatternGuards, ScopedTypeVariables      #-}
+{-# LANGUAGE RecordWildCards, OverloadedStrings      #-}
 
 ------------------------------------------------------------------------------
 -- |
@@ -53,6 +54,7 @@ import           Data.ByteString (ByteString)
 import qualified Data.ByteString.Char8 as B
 import           Data.Int (Int16, Int32, Int64)
 import           Data.List (foldl')
+import           Data.Maybe ( fromMaybe )
 import           Data.Ratio (Ratio)
 import           Data.Time ( UTCTime, ZonedTime, LocalTime, Day, TimeOfDay )
 import           Data.Typeable (Typeable, typeOf)
@@ -119,6 +121,52 @@ class FromField a where
 instance (FromField a) => FromField (Maybe a) where
     fromField _ Nothing = pure Nothing
     fromField f bs      = Just <$> fromField f bs
+
+instance (Typeable a, FromField a) => FromField [a] where
+    fromField f Nothing   = returnError UnexpectedNull f ""
+    fromField f (Just bs)
+        | nesting r == 0 = mapM (fromField f' . Just) $ reverse $ parts r
+        | otherwise = returnError ConversionFailed f ""
+        where
+          r = B8.foldl' go ArrayState { nesting            = 0
+                                      , currentIx          = 0
+                                      , currentPartBeginIx = 1
+                                      , parts              = []
+                                      } bs
+
+          go s '{' = s {nesting = nesting s + 1, currentIx = currentIx s + 1}
+          go s '}' | nesting s == 1 = s { nesting   = nesting s - 1
+                                        , parts     = B8.take (currentIx s - currentPartBeginIx s)
+                                                              (B8.drop (currentPartBeginIx s) bs)
+                                                    : parts s
+                                        , currentIx = nextIx
+                                        , currentPartBeginIx = nextIx
+                                        }
+                   | otherwise      = s {nesting = nesting s - 1, currentIx = currentIx s + 1}
+                  where
+                    nextIx = currentIx s + 1
+          go s ',' | nesting s == 1 = s { parts     = B8.take (currentIx s - currentPartBeginIx s)
+                                                              (B8.drop (currentPartBeginIx s) bs)
+                                                    : parts s
+                                        , currentIx = nextIx
+                                        , currentPartBeginIx = nextIx
+                                        }
+                  where
+                    nextIx = currentIx s + 1
+          go s _ = s {currentIx = currentIx s + 1}
+
+          TypeInfo{..} = typeinfo f
+
+          f' = f {typeinfo = TypeInfo { typ = fromMaybe typ typelem
+                                      , typelem = Nothing
+                                      }
+                 }
+
+data ArrayState = ArrayState { nesting            :: !Int
+                             , currentIx          :: !Int
+                             , currentPartBeginIx :: !Int
+                             , parts              :: ![ByteString]
+                             } deriving Show
 
 instance FromField Null where
     fromField _ Nothing  = pure Null
@@ -270,7 +318,7 @@ doFromField :: forall a . (Typeable a)
           => Field -> Compat -> (ByteString -> Ok a)
           -> Maybe ByteString -> Ok a
 doFromField f types cvt (Just bs)
-    | Just typ <- oid2builtin (typeOid f)
+    | Just typ <- oid2builtin (typoid $ typ $ typeinfo f)
     , mkCompat typ `compat` types = cvt bs
     | otherwise = returnError Incompatible f "types incompatible"
 doFromField f _ _ _ = returnError UnexpectedNull f ""

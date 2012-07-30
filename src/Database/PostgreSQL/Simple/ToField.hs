@@ -80,6 +80,12 @@ instance (ToField a) => ToField (Maybe a) where
     toField (Just a) = toField a
     {-# INLINE toField #-}
 
+instance (ToField a) => ToField [a] where
+    toField xs = Many $
+        Plain (fromByteString "ARRAY[") :
+        (intersperse (Plain (fromChar ',')) . map toField $ xs) ++
+        [Plain (fromChar ']')]
+
 instance (ToField a) => ToField (In [a]) where
     toField (In []) = Plain $ fromByteString "(null)"
     toField (In xs) = Many $
