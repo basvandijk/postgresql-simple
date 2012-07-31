@@ -136,8 +136,9 @@ instance (Typeable a, FromField a) => FromField [a] where
 
           go s '{' = s {nesting = nesting s + 1, currentIx = currentIx s + 1}
           go s '}' | nesting s == 1 = s { nesting   = nesting s - 1
-                                        , parts     = B8.take (currentIx s - currentPartBeginIx s)
-                                                              (B8.drop (currentPartBeginIx s) bs)
+                                        , parts     = dequote
+                                                      (B8.take (currentIx s - currentPartBeginIx s)
+                                                               (B8.drop (currentPartBeginIx s) bs))
                                                     : parts s
                                         , currentIx = nextIx
                                         , currentPartBeginIx = nextIx
@@ -145,8 +146,9 @@ instance (Typeable a, FromField a) => FromField [a] where
                    | otherwise      = s {nesting = nesting s - 1, currentIx = currentIx s + 1}
                   where
                     nextIx = currentIx s + 1
-          go s ',' | nesting s == 1 = s { parts     = B8.take (currentIx s - currentPartBeginIx s)
-                                                              (B8.drop (currentPartBeginIx s) bs)
+          go s ',' | nesting s == 1 = s { parts     = dequote
+                                                      (B8.take (currentIx s - currentPartBeginIx s)
+                                                               (B8.drop (currentPartBeginIx s) bs))
                                                     : parts s
                                         , currentIx = nextIx
                                         , currentPartBeginIx = nextIx
@@ -161,6 +163,15 @@ instance (Typeable a, FromField a) => FromField [a] where
                                       , typelem = Nothing
                                       }
                  }
+
+dequote :: ByteString -> ByteString
+dequote bs = case B8.uncons bs of
+               Just ('"', ts) -> B8.pack $ go $ B8.unpack $ B8.init ts
+               _ -> bs
+    where
+      go []          = []
+      go ('\\':c:cs) = c : go cs
+      go      (c:cs) = c : go cs
 
 data ArrayState = ArrayState { nesting            :: !Int
                              , currentIx          :: !Int
