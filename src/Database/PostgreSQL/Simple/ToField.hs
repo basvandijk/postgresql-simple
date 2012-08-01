@@ -41,6 +41,8 @@ import qualified Data.Text.Encoding as ST
 import qualified Data.Text.Lazy as LT
 import qualified Database.PostgreSQL.LibPQ as PQ
 import           Database.PostgreSQL.Simple.Time
+import           Data.Vector ( Vector )
+import qualified Data.Vector.Generic as VG
 
 -- | How to render an element when substituting it into a query.
 data Action =
@@ -80,10 +82,10 @@ instance (ToField a) => ToField (Maybe a) where
     toField (Just a) = toField a
     {-# INLINE toField #-}
 
-instance (ToField a) => ToField [a] where
+instance (ToField a) => ToField (Vector a) where
     toField xs = Many $
         Plain (fromByteString "ARRAY[") :
-        (intersperse (Plain (fromChar ',')) . map toField $ xs) ++
+        (intersperse (Plain (fromChar ',')) . map toField $ VG.toList xs) ++
         [Plain (fromChar ']')]
 
 instance (ToField a) => ToField (In [a]) where

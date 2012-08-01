@@ -72,6 +72,8 @@ import qualified Data.ByteString.Lazy as LB
 import qualified Data.Text as ST
 import qualified Data.Text.Encoding as ST
 import qualified Data.Text.Lazy as LT
+import           Data.Vector ( Vector )
+import qualified Data.Vector.Generic as VG
 
 -- | Exception thrown if conversion from a SQL value to a Haskell
 -- value fails.
@@ -122,10 +124,12 @@ instance (FromField a) => FromField (Maybe a) where
     fromField _ Nothing = pure Nothing
     fromField f bs      = Just <$> fromField f bs
 
-instance (Typeable a, FromField a) => FromField [a] where
+instance (Typeable a, FromField a) => FromField (Vector a) where
     fromField f Nothing   = returnError UnexpectedNull f ""
     fromField f (Just bs)
-        | nesting r == 0 = mapM (fromField f' . Just) $ reverse $ parts r
+        | bs == "{}"     = pure VG.empty
+        | nesting r == 0 = fmap VG.fromList
+                         $ mapM (fromField f' . Just) $ reverse $ parts r
         | otherwise = returnError ConversionFailed f ""
         where
           r = B8.foldl' go ArrayState { nesting            = 0
